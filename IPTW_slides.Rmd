@@ -1,0 +1,1281 @@
+---
+title: "Inverse probability of treatment weighting and marginal structural models"
+author: "JA Labrecque"
+institute:
+- Erasmus Medical Center, Rotterdam, The Netherlands
+date: "Jan 30, 2020"
+output: 
+  beamer_presentation: 
+    incremental: false
+    keep_tex: true
+
+header-includes:
+- \usepackage{tikz}
+- \usepackage{xcolor}
+- \logo{\includegraphics[height=0.8cm]{logoerasmusmc.png}}
+- \definecolor{edarkblue}{RGB}{12, 33, 116}
+- \setbeamercolor{frametitle}{fg=edarkblue}
+- \usetikzlibrary{decorations.pathreplacing,angles,quotes}
+- \usepackage{graphicx}
+- \usetikzlibrary{shapes,decorations}
+- \newcommand{\indep}{\rotatebox[origin=c]{90}{$\models$}}
+- \definecolor{arylideyellow}{rgb}{0.91, 0.84, 0.42}
+- \usepackage{longtable}
+- \usepackage{booktabs}
+
+
+---
+
+## Outline 
+
+All material available at [https://github.com/jalabrecque/Berlin](https://github.com/jalabrecque/Berlin)
+
+@. What is causal inference?
+@. Structural models
+@. Inverse probability of treatment weights
+@. Estimation of marginal structural model
+@. MSM for time-varying exposures
+@. Marginal vs conditional
+@. Treatment models vs outcome models
+@. Example
+@. Exercise
+
+---
+
+\centering
+\Large{1. What is causal inference?}
+
+
+## The research terrain
+
+```{r include=FALSE}
+knitr::opts_chunk$set(comment = NA)
+library(magrittr)
+```
+
+* The first question we should ask is what kind of study are we doing
+    * Descriptive: what is the relationship between A and Y?
+    * Predictive: what will Y be if I observed A=a?
+    * Causal: how will Y change if I change A?
+
+## Causal inference
+
+* Choices of ways to do causal inference:
+    * Experimental
+        * Randomized controlled trial
+    * Confounder adjustment
+        * Outcome regression
+        * Propensity score
+        * Doubly robust estimation
+    * Quasi-experimenal
+        * Instrumental variable
+        * Regression discontinuity
+        * Differences-in-differences
+        
+## Where we are
+
+\begin{figure}
+\begin{tikzpicture}
+\node[text centered] at (0,8) (r) {Research};
+\node[text centered] at (-4,6) (d) {Descriptive};
+\node[text centered] at (0,6) (p) {Predictive};
+\node[text centered,red] at (4,6) (c) {Causal};
+\node[text centered] at (-2,4) (e) {Experimental};
+\node[text centered,red] at (1,4) (a) {Adjustment};
+\node[text centered] at (4,4) (q) {Quasi-experimental};
+\node[text centered] at (-2.5,2) (o) {Model outcome};
+\node[text centered,red] at (1,2) (ps) {Model treatment};
+\node[text centered] at (4,2) (dr) {Other};
+\draw[-, line width= 1] (r) -- (d);
+\draw[-, line width= 1] (r) -- (p);
+\draw[-, line width= 1,red] (r) -- (c);
+\draw[-, line width= 1] (c) -- (e);
+\draw[-, line width= 1,red] (c) -- (a);
+\draw[-, line width= 1] (c) -- (q);
+\draw[-, line width= 1] (a) -- (o);
+\draw[-, line width= 1,red] (a) -- (ps);
+\draw[-, line width= 1] (a) -- (dr);
+
+\end{tikzpicture}
+\end{figure}
+
+
+## The goal of causal inference
+
+* What we want to know but can't observed: $E[Y^{a=1}-Y^{a=0}]$
+* What we can observe: $E[Y|A=1,L=l] - E[Y|A=0,L=l]$
+* Causal inference tells us how to model observed data to make an observable estimate equal to an unobservable causal estimate (and the assumptions required for them to be equal)
+
+$$E[Y^{a=1}-Y^{a=0}] = E[Y|A=1,L=l] - E[Y|A=0,L=l]$$
+
+
+---
+
+\centering
+\Large{2. Marginal structural models}
+
+
+
+
+## Marginal structural models
+
+* State the causal model (marginal)
+* Find weights that balance covariates across levels of exposure
+* Estimate the causal model using these weights
+
+
+
+
+## Marginal structural models
+
+$$ E[Y^{a}] = \beta_{0} + \beta_{A}*a $$
+
+
+## Marginal structural models
+
+* The left-hand side is a counterfactual
+* There are no covariates
+
+$$ E[Y^{a}] = \beta_{0} + \beta_{A}*a $$
+
+## Marginal structural models
+
+\begin{center}
+\includegraphics[width=4in]{table_1_1.png}
+\end{center}
+
+## Marginal structural models
+
+```{r, echo=FALSE, cache=TRUE, fig.align='center'}
+library(kableExtra)
+
+names <- c("Rheia","Kronos","Demeter","Hades","Hestia","Poseidon","Hera","Zeus","Artemis","Apollo","Leto","Ares","Athena","Hephaestus","Aphrodite","Cycope","Persephone","Hermes","Hebe","Dionysius")
+
+ds <- data.frame(name = rep(names,each=2),
+                 A = rep(c(0,1),length(names)),
+                 Y = c(0,1,
+                       1,0,
+                       0,0,
+                       0,0,
+                       0,0,
+                       1,0,
+                       0,0,
+                       0,1,
+                       1,1,
+                       1,0,
+                       0,1,
+                       1,1,
+                       1,1,
+                       0,1,
+                       0,1,
+                       0,1,
+                       1,1,
+                       1,0,
+                       1,0,
+                       1,0))
+
+
+
+knitr::kable(ds, booktabs=T, linesep="", escape = F, col.names = c("","A","$Y^a$")) %>%
+  kable_styling(position = "center")
+
+```
+
+
+## Marginal structural models
+
+* What we want is $E[Y^a]$ but what we have is $E[Y|A=a]$
+* If we believed that $E[Y^a]=E[Y|A=a]$, we could substitute one for the other
+* This is where our causal assumptions come into play
+
+
+## Marginal structural models
+
+$$E[Y|A=a]=E[Y^a|A=a]=E[Y^a]$$
+
+* On the left is what we observe, on the right is what we want
+* The first equality is called the consistency assumption: $Y^a=Y$ for every person with $A=a$
+* The second equality is called the exchangeability assumption: $Y^a \indep A$
+* You also need to assume positivity
+* If we believe all these assumptions we can use observed data to estimate the MSM
+
+## How do we normally get exchangeability?
+
+* We make a model where we put the outcome on one side of the equation and our exposure and potential confounders on the other side
+* $$ Y \sim A + \textrm{potential confounders} + \epsilon $$
+* What are we doing here?
+* We are making a statistical model of the outcome
+* But our MSM does not condition on confounders so how can we get exchangeability without conditioning?
+
+## Marginal structural models
+
+* So our goal, if we want to fit this model, is to make a dataset where we can achieve exchangeability without conditioning on confounders
+
+$$ E[Y^{a}] = \beta_{0} + \beta_{A}*a $$
+
+
+---
+
+\centering
+\Large{3. Inverse probability of treatment weights }
+
+
+## Another way of dealing with confounding
+
+* But, think back, what is the definition of a confounder?
+* Loosely, it's a variable that is a cause of the outcome and associated with exposure
+* We use regression to model the relationship between our confounders and the outcome
+* But can we focus on the association with the exposure instead?
+
+
+\begin{figure}
+\begin{tikzpicture}
+\node[text centered] at (0,0) (a) {$A$};
+\node[text centered] at (0,2) (u) {$C$};
+\node[text centered] at (5,0) (y) {$Y$};
+\draw[->, line width= 1] (a) -- (y);
+\draw[->, line width= 1] (u) -- (a);
+\draw[->, line width= 1] (u) -- (y);
+
+\end{tikzpicture}
+\end{figure}
+
+## Artificial balancing
+
+A very simple data set:
+
+```{r, echo=FALSE, cache=TRUE, fig.align='center'}
+library(kableExtra)
+
+ds <- data.frame(C = c(0,1,0,1),
+                 A = c(0,0,1,1),
+                 Y = c(0,1,1,2),
+                 n = c(6,4,4,6))
+
+knitr::kable(ds, booktabs=T ) %>%
+  kable_styling(position = "center")
+
+```
+
+\vspace{10mm}
+
+C is a covariate, A is our exposure, Y is our outcome and n is the number of people in each stratum.
+
+---
+
+```{r, echo=FALSE, cache=TRUE, fig.align='center'}
+library(kableExtra)
+
+ds <- data.frame(C = c(0,1,0,1),
+                 A = c(0,0,1,1),
+                 Y = c(0,1,1,2),
+                 n = c(6,4,4,6))
+
+knitr::kable(ds, booktabs=T ) %>%
+  kable_styling(position = "center")
+
+```
+
+\vspace{10mm}
+
+C is a confounder of the effect of A on Y because p(C) among unexposed is $\frac{4}{10}$ and among the exposed $\frac{6}{10}$ AND because C causes Y (it increases it by 1).
+
+---
+
+```{r, echo=FALSE, cache=TRUE, fig.align='center', message=FALSE}
+library(kableExtra)
+library(dplyr)
+
+ds <- data.frame(C = c(0,1,0,1),
+                 A = c(0,0,1,1),
+                 Y = c(0,1,1,2),
+                 n = c(6,4,4,6))
+
+knitr::kable(ds, booktabs=T ) %>%
+  kable_styling(position = "center")
+
+```
+
+\vspace{5mm}
+
+The true effect of A is 1. But C is a confounder so we get:
+
+```{r, echo=TRUE}
+lm(Y ~ A, data = ds, weights = n)$coef["A"]
+```
+
+
+```{r, echo=TRUE}
+lm(Y ~ A + C, data = ds, weights = n)$coef["A"]
+```
+
+---
+
+What if we simply added observations to the data set to balance $C$ across exposures?
+
+```{r, echo=FALSE, cache=TRUE, fig.align='center', message=FALSE}
+ds$n <- c(6,9,4,6)
+
+knitr::kable(ds, booktabs=T ) %>%
+  kable_styling(position = "center")
+```
+
+\vspace{5mm}
+
+What happens if we rerun our regression now that we've "artificially" balanced $C$?
+
+```{r, echo=TRUE}
+lm(Y ~ A, data = ds, weights = n)$coef["A"]
+```
+
+
+---
+
+- So we've found a way to achieve exchangeability (for measured covariates) without having to include it in our regression
+- When you have a lot of confounders you can't simply add observations like this so we get a bit "mathy"
+- Inverse probability of treatment weighting (IPTW) is just a way of balancing confounders using information from all confounders 
+
+    
+    
+---
+
+
+```{r, echo=FALSE, cache=TRUE, fig.align='center', message=FALSE}
+ds$n <- c(6,4,4,6)
+ds$q <- c(0.6,0.4,0.4,0.6)
+ds$w <- (1/ds$q)
+ds$nw <- ds$n*ds$w
+
+knitr::kable(ds %>% round(2), booktabs=T,col.names = c("C","A","Y","n","P(A=a|C=C)","IPTW","n*IPTW"), align = "c" ) %>%
+  kable_styling(position = "center")
+```
+
+* $P(A=0|C=0)=\frac{6}{10}=0.6$
+* $P(A=0|C=1)=\frac{4}{10}=0.4$
+* $P(A=1|C=0)=\frac{4}{10}=0.4$
+* $P(A=1|C=1)=\frac{6}{10}=0.6$
+
+
+## Modeling the exposure
+
+* In outcome regression, we model the outcome as a function of the exposure and confounders
+* What if we, instead, model the exposure as a function of the confounders?
+* $logit(P(A=a)) = \alpha + \bar{\beta}\bar{L}$
+* A represents exposure and L represents a vector of confounders
+* $P(A=a|L=l)$ is also called the propensity score (PS)
+* It is the probability that you receive treatment A=a given covariates
+* What would the propensity score be in a randomized trial?
+
+## What is the use in modeling the PS?
+
+* The PS, it turns out, is what is known as a _balancing score_
+* Balancing score is a score within which the covariates are balanced across levels of exposure for each value of the balancing score
+* Let's look at the PS
+     * We model the exposure A as a function of confounders L
+     * We can calculate the PS that A=1 for each individual in our sample
+     * If we choose all individuals with, for example, PS=0.3, this will include some people who have A=0 and some people who have A=1
+     * If we compare the average covariate value among people with A=0 and people with A=1 among everyone with PS=0.3, we will find that the average value of L will be the same between these two groups
+     * $A\indep L|PS(L)$
+     * What does this remind you of?
+
+## How do we calculate a propensity score?
+
+* Methods to estimates PS
+    * Most common: logistic regression
+    * Machine learning
+    * Covariate-balancing propensity score
+
+## What variables go in my propensity score
+
+* When we're modeling the outcome, we have to include confounders in our model but including predictors of the outcome that aren't confounders will not hurt us
+* This is not true of propensity score models. Even though we're modeling the exposure, including variables that are predictive of exposure but that are not confounders SHOULD NOT be included in the model
+* What should be included in the propensity score model are variables which you would like to be balanced, _i.e._ confounders
+* If variables are included that are correlated with exposure but are not risk factors for the outcome, this will cause bias amplification
+* Bias amplification means that any bias in your study will be amplified by including this type of variable
+
+
+
+## A simple example
+
+* We want to do a study of a drug that lowers blood pressure
+* We think that age, sex and BMI are confounders. We make a table 1 of these confounders by treatment status:
+
+```{r, echo=FALSE, cache=TRUE}
+library(boot)
+library(kableExtra)
+n <- 10000
+age <- rnorm(n = n, 50, 10)
+sex <- rbinom(n = n, size = 1, prob = 0.5)
+BMI <- rnorm(n = n, mean = 27, sd = 3)
+A <- rbinom(n = n, size = 1, prob = inv.logit(0.2*(age-50) - 0.5*(sex-0.5) + 0.3*(BMI-27)))
+Y <- 80 - 5*A + 0.6*age + 5*sex + 0.8*BMI + rnorm(n = n, mean = 0, 5)
+data <- data.frame(age, sex, BMI, A, Y)
+
+vars <- c("age","sex","BMI")
+  res <- data.frame(t(sapply(vars,FUN=function(x) {
+    m <- lm(data[,x] ~ data[,"A"], weights = NULL)$coef
+    return(round(c(m[1],sum(m)),2))
+  })))
+  
+  names(res) <- c("A0", "A1")
+  
+  unw_est <- round(lm(data$Y ~ data$A)$coef[2],1)
+  
+  kable(x = res)
+
+```
+
+* We also find that the treated group have `r unw_est`mmHg higher blood pressure than the untreated group. These data are simulated so we know the true value: -5. Clearly the crude estimate is very confounded.
+* We would like to us IPTW to estimate the effect of A on BP
+
+## A simple example
+
+* We run a logistic regression of A on age, sex and BMI
+* $logit(P(A)) \sim \alpha + age + sex + BMI$
+* With that model we calculate the probability that each person receives the treatment A
+
+```{r, echo=TRUE, fig.height=5}
+
+mod <- glm(A ~ age + sex + BMI, data=data, family = "binomial")
+
+mod$coefficients
+
+```
+
+## A simple example
+
+```{r, echo=TRUE, fig.height=5}
+
+mod <- glm(A ~ age + sex + BMI, data=data, family = "binomial")
+data$ps <- predict(mod, type = "response")
+hist(data$ps,main="Histogram of PS")
+
+```
+
+
+## A simple example
+
+* We can also plot a histogram by treatment received
+
+
+```{r, echo=F}
+
+par(mfrow=c(2,1))
+ 
+#Make the plot
+par(mar=c(0,5,3,3))
+hist(data$ps[data$A==1] , main="" , xlim=c(0,1), ylab="Frequency for A1", xlab="", ylim=c(0,1200) , xaxt="n", las=1 , col="slateblue1", breaks=20)
+par(mar=c(5,5,0,3))
+hist(data$ps[data$A==0] , main="" , xlim=c(0,1), ylab="Frequency for A0", xlab="Propensity score", ylim=c(1200,0) , las=1 , col="tomato3"  , breaks=20)
+
+
+```
+
+  
+
+<!-- ## How does weighting work? -->
+
+<!-- * How weighting works for IPTW is not immediately intuitive -->
+<!-- * I'll try to give you some intuition by using survey weights as an example -->
+<!-- * Often when doing a survey, smaller groups may be oversampled in order to get a better idea of the value you are measuring in that group -->
+<!-- * Let's say we want to know the prevalence of condition X in a population -->
+<!-- * The population is divided into two groups: A and B -->
+<!-- * 90% of the population is group A and 10% is group B -->
+<!-- * We also want to get a precise estimate of the prevalence in group B -->
+<!-- * Therefore we sample 50 people from group A and 50 people from group B -->
+
+<!-- ## What are we weighting for? -->
+
+<!-- * In our sample there is an association between group and the probability being sample -->
+<!-- * If we want to know the prevalence in the whole population, we must weight our sample so there is no relationship between group and the probability of being sampled -->
+<!-- * How do we do this? -->
+<!-- * Say the prevalence in group A is 50% and the prevalence in group B is 30% -->
+<!-- * We know the probability (or propensity) of being sampled in each group: -->
+<!--     * If the population is, say, 1000 people,  and the sample is 100 people, we selected 50/900 from group A and 50/100 from group B -->
+<!--     * If we weight the average prevalence by the inverse probability of being selected, we get the correct prevalence -->
+<!--     * $\frac{50\%\*(900/50) + 30\%\*(100/50)}{1000/50}=48\%$ -->
+
+<!-- ## IPTW -->
+
+<!-- * I just showed you how reweighting a sample created a new pseudopopulation where there was no relationship between group and probability of being selected -->
+<!-- * IPTW does the same thing. But instead it creates a new _pseudopopulation_ where there is no relationship between confounders and treatment -->
+<!-- * The weights are calculated as the inverse probability of _receiving the treatment you received_ -->
+<!-- * $\frac{I(A=a)}{P(A=a|L=l)}$ -->
+<!-- * That means for people who were exposed (A=1) the weights are $\frac{1}{P(A=1|L=l)}$ -->
+<!--     * $\frac{1}{PS}$ -->
+<!-- * That means for people who were not exposed (A=0) the weights are $\frac{1}{P(A=0|L=l)}$ -->
+<!--     * $\frac{1}{1-PS}$ -->
+    
+## Examples of going from PS to IPTW
+
+* What is the IPTW of a treated participant with a PS=0.5?
+    * They received treatment so it's simply $\frac{1}{PS}=\frac{1}{0.5}=2$
+    * So when we use the weighting, this person will count for 2 people
+    
+## Examples of going from PS to IPTW
+    
+* What is the IPTW of a untreated participant with a PS=0.2?
+    * They were not treated so the IPTW is $\frac{1}{1-PS}=\frac{1}{1-0.2}=1.25$
+    * So in the weighted sample, this person will count for 1.25 people
+    
+    
+    
+## Examples of going from PS to IPTW
+
+* What is the IPTW of a treated participant with a PS=0.2?
+    * They were treated so the IPTW is $\frac{1}{PS}=\frac{1}{0.2}=5$
+    * So in the weighted sample, this person will count for 5 people
+    * Think about it this way, this participant's PS was 0.2 so they had an 20% probability of being treated
+    * Therefore, this person is kind of rare, they had a low probability of being treated but were treated anyway
+    * Therefore we upweight this observation
+    
+    
+## Examples of going from PS to IPTW    
+
+* What is the IPTW of a treated participant with a PS=0.1?
+    * They were treated so the IPTW is $\frac{1}{PS}=\frac{1}{0.1}=10$
+
+## Examples of going from PS to IPTW    
+
+* What is the IPTW of a treated participant with a PS=0.01?
+    * They were treated so the IPTW is $\frac{1}{PS}=\frac{1}{0.01}=100$
+    * This participant counts for 100 people. This means this is a very influential observation
+    * We had better be very sure we've measured everything right about this person if they're going to count for so much
+    * We'd like to be able to avoid observations that are so heavily weighted
+    
+## DO NOT FORGET
+
+\begin{center}
+$\frac{1}{\textrm{P(receiving the treatment they recevied)}}$
+
+\vspace{5mm}
+
+NOT    
+
+\vspace{5mm}
+
+$\frac{1}{\textrm{P(being treated)}}$
+
+\end{center}
+
+## DO NOT FORGET
+
+
+\begin{center}
+\includegraphics[width=4in]{wrong_definition.png}
+\end{center}
+
+
+
+## IPTW
+
+* Weighting by the inverse probability of \textcolor{blue}{sampling given group} creates a pseudopopulation where there is no relationship between \textcolor{blue}{group and sampling status}
+
+\vspace{5mm}
+
+* Weighting by the inverse probability of \textcolor{red}{treatment received given confounders} creates a new population where there is no relationship between \textcolor{red}{confounders and treatment status}
+
+## IPTW on a DAG
+
+\begin{figure}
+\begin{tikzpicture}
+
+
+\node[text centered] at (-6,2) (lab1) {\textcolor{red}{Unweighted}};
+
+\node[text centered] at (-2,0) (g0) {$Group$};
+\node[text centered] at (-4,0) (s0) {$Sampled$};
+\draw[dashed, line width= 1] (g0) -- (s0);
+
+
+
+
+\node[text centered] at (0,0) (a0) {$A$};
+\node[text centered] at (0,2) (l0) {$L$};
+\node[text centered] at (3,0) (y0) {$Y$};
+\draw[->, line width= 1] (a0) -- (y0);
+\draw[->, line width= 1] (l0) -- (y0);
+\draw[->, line width= 1] (l0) -- (a0);
+
+
+
+\node[text centered, white] at (3,-4) (y1) {$Y$};
+
+
+
+\end{tikzpicture}
+\end{figure}
+
+
+
+## IPTW on a DAG
+
+\begin{figure}
+\begin{tikzpicture}
+
+
+\node[text centered] at (-6,2) (lab1) {\textcolor{red}{Unweighted}};
+\node[text centered] at (-6,-2) (lab2) {\textcolor{red}{Weighted}};
+
+\node[text centered] at (-2,0) (g0) {$Group$};
+\node[text centered] at (-4,0) (s0) {$Sampled$};
+\draw[dashed, line width= 1] (g0) -- (s0);
+
+\node[text centered] at (-2,-4) (g1) {$Group$};
+\node[text centered] at (-4,-4) (s1) {$Sampled$};
+
+
+\node[text centered] at (0,0) (a0) {$A$};
+\node[text centered] at (0,2) (l0) {$L$};
+\node[text centered] at (3,0) (y0) {$Y$};
+\draw[->, line width= 1] (a0) -- (y0);
+\draw[->, line width= 1] (l0) -- (y0);
+\draw[->, line width= 1] (l0) -- (a0);
+
+\node[text centered] at (0,-4) (a1) {$A$};
+\node[text centered] at (0,-2) (l1) {$L$};
+\node[text centered] at (3,-4) (y1) {$Y$};
+\draw[->, line width= 1] (a1) -- (y1);
+\draw[->, line width= 1] (l1) -- (y1);
+
+
+\end{tikzpicture}
+\end{figure}
+
+## Causal inference with confounder adjustment
+
+* Assumptions
+    * Exchangeability (no bias)
+        * The average outcome would be the same between the treated/untreated groups if they are set to have the same exposure
+    * Consistency (well-defined interventions)
+        * How are you going to intervene on the exposure
+    * Positivity
+        * Do you have both treated and control people in all strata of confounders
+        
+## Exchangeability
+
+* In more basic terms, this is the assumption that there is no confounding or selection bias
+* In more complicated terms, it assumes the counterfactual $Y^a$ is independent (not correlated with) the observed treatment
+
+
+## Consistency
+
+* This assumption does the magic of tying real world observations to the world we could have observed if we had changed someone's exposure (counterfactual)
+* For our purposes, you can think of this as the assumption of well-defined interventions
+* What is the effect of reducing BMI by one unit on coronary heart disease?  
+    * This is not a well-defined intervention
+    * There are many ways a person's BMI can be reduced not all of which will have the same effect
+    
+## Positivity
+
+* There are both exposed and unexposed people for every possible combination of confounders
+* Simple example, imagine sex is the only confounder in our study
+    * Among men we have both exposed and unexposed people
+    * But all the women in our study are exposed
+    * Is it possible now to adjust for sex?
+* Positivity ensures we don't have to extrapolate across levels of confounder
+* One of the advantages of IPTW, you'll see, is that it's easier to check this assumption
+
+## Three things to check before estimation
+
+1) Positivity
+    * This is done by plotting a histogram of the propensity scores (not the weights) within each group
+    * Positivity is satisfied when the histogram for the exposed and the unexposed overlap completely
+    * This is known as looking for common support
+    * If only a small portion of the histograms do not overlap, this might be _random violations_ of positivity
+    * If large portions of the histograms do not overlap, this might be a _structural violation_ of positivity. If this occurs, it is likely to bias your effect estimates.
+    
+## Three things to check before estimation
+
+1) Positivity
+
+```{r, echo=F}
+
+par(mfrow=c(2,1))
+
+data$IPTW <- 1/data$ps
+data$IPTW[data$A==0] <- 1/(1-data$ps[data$A==0])
+ 
+#Make the plot
+par(mar=c(0,5,3,3))
+hist(data$ps[data$A==1] , main="" , xlim=c(0,1), ylab="Frequency for A1", xlab="", ylim=c(0,1200) , xaxt="n", las=1 , col="slateblue1", breaks=20)
+par(mar=c(5,5,0,3))
+hist(data$ps[data$A==0] , main="" , xlim=c(0,1), ylab="Frequency for A0", xlab="Propensity score", ylim=c(1200,0) , las=1 , col="tomato3"  , breaks=20)
+
+
+```
+    
+## Three things to check before estimation
+
+2) The mean and distribution of your weights
+    * These weights should have a mean of 2
+    * If you use different weights (_e.g._ stabilized weights) the mean might be something else
+    * Check the range of your weights. Very large weights indicate that some observations are being given a lot of weight meaning they are very influential.
+    
+## Three things to check before estimation
+
+* Weights range: `r format(round(range(data$IPTW),1),nsmall=1)`
+* Weights mean: `r format(round(mean(data$IPTW),1),nsmall=1)`
+
+```{r, echo=F}
+
+
+
+hist(data$IPTW, main="Histogram of IPT weights", xlab="IPT weights",ylim=c(0,1000))
+
+# par(mfrow=c(2,1))
+#  
+# #Make the plot
+# par(mar=c(0,5,3,3))
+# hist(data$ps[data$A==1] , main="" , xlim=c(0,1), ylab="Frequency for A1", xlab="", ylim=c(0,1200) , xaxt="n", las=1 , col="slateblue1", breaks=20)
+# par(mar=c(5,5,0,3))
+# hist(data$ps[data$A==0] , main="" , xlim=c(0,1), ylab="Frequency for A0", xlab="Propensity score", ylim=c(1200,0) , las=1 , col="tomato3"  , breaks=20)
+
+
+```    
+    
+
+## To check positivity and weight distribution
+
+
+\begin{center}
+\includegraphics[width=3in]{hetero_fig1.png}
+\end{center}
+\small{(Shrier, Pang and Platt, 2017)}
+
+## Trimming 
+
+* Sometimes observations are trimmed (removed) if:
+    * the PS is in a very high or very low percentile (influential data points)
+    * in ranges of the PS where there is no overlap between the exposure and unexposed groups
+* There is some debate around trimming
+* Some think about this in terms of structural or random non-positivity
+* Some prefer trimming as it can increase the precision of your estimates
+* Ideally, trimming will increase your precision but not change your estimate very much
+* If trimming changes, you have to make a decision about whether the observations being trimmed are representative or not
+
+## Three things to check before estimation
+
+3) Balance in covariates
+    * This can be done by using the 'w=' option in R (or the WEIGHT function in SAS)
+    * You can reweight any descriptive command using the 'w=' option  to check the balance across exposure groups in the weighted pseudopopulations
+    * Some suggest checking for balance in higher order variables as well (squared terms or interactions between variables)
+    * Again, you can go back and change your treatment model if you're not happy with the balance
+    * If we reweight the table one from our example before. On the left the original table one and on the right the weighted table one:
+    
+```{r, echo=FALSE, cache=TRUE}
+library(boot)
+library(kableExtra)
+
+
+
+  res_w <- data.frame(t(sapply(vars,FUN=function(x) {
+    m <- lm(data[,x] ~ data[,"A"], weights = data$IPTW)$coef
+    return(round(c(m[1],sum(m)),2))
+  })))
+  
+  names(res_w) <- c("A0", "A1")
+  
+  w_est <- round(lm(data$Y ~ data$A,weights = data$IPTW)$coef[2],1)
+  
+  knitr::kable(list(res,res_w))
+
+```
+    
+    
+    
+## Balance
+
+* Don't assume your model is going to do the balancing for you
+* A more complex model will not necessarily give you better balance
+
+\begin{center}
+\includegraphics[width=3in]{Moodie.png}
+\end{center}
+
+\small{(Moodie and Stephens, 2017)}
+
+## Balance
+
+* Many programs will show balance statistics based on standardized differences
+* If you have external knowledge about which variables are stronger confounders (_i.e._ more strongly related to the outcome), you could prioritize balance among those variables
+
+\begin{center}
+\includegraphics[width=3in]{Moodie_table.png}
+\end{center}
+
+\small{(Moodie and Stephens, 2017)}
+
+
+---
+
+\centering
+\Large{4. Estimation of marginal structural model }
+
+
+
+## Ok. I estimated my PS. Now what?
+
+* The PS is continuous, so you can't just analyze people with the same value
+* There are a number of things you can do with the PS once you've estimated it
+     * Stratify
+     * Match
+     * IPTW
+
+## Estimation
+
+* Once you are satisfied with the balance you can estimate your effect
+* Now, after all this, we finally come back to our MSM: $E[Y^a] = \beta_0 + \beta_1*a$
+* Because or weights have removed the assocation between A and L, we can estimate this model directly without having to include any covariates
+* Estimate a bivariate regression of your outcome on your exposure (do not include any covariates) and weight this model by your IPTW weights
+* $Y~\alpha+A$, weights=IPTW
+* Voila, you have now used MSM estimated with IPTW to estimate a causal effect 
+* In our simple example from before, our crude estimate was `r unw_est`. If we reweight that model using our IPTW weights we get `r w_est` which is much closer to the true value of -5. 
+
+## Effect modification with IPTW
+
+* What if you want to estimate effects in different subgroups
+* You can include interaction terms in your outcome model
+* $Y~\alpha+A+V+A*V$, weights=IPTW
+    * If V is binary, the coefficient for A will be the effect of A when V=0
+    * The coefficient for A plus the coefficient for A\*V will be the effect of A when V=1
+    * The coefficient for V has no causal interpretation because we are only making causal assumptions for A (positivity, consistency and exchangeability)
+
+
+## What if the PS is an effect modifier?
+
+* You can estimate the IPTW effect among quantiles of the PS
+
+```{r, echo=FALSE, message=F, warning=F, results='asis',out.width = '100%'}
+library(imager)
+par(mar=rep(0,4))
+
+m <- matrix(c(1,2), nrow = 1)
+layout(m)
+
+plot(load.image("hetero_PS.png"), axes = F, cex = 1.2)
+plot(load.image("hetero_paragraph.png"), axes = F, cex = 0.8)
+```
+
+\small{(Shrier, Pang and Platt, 2017)}
+
+## What if the PS is an effect modifier?
+
+
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE}
+library(magrittr)
+library(metafor)
+data$ps_cut <- cut(data$ps,breaks = seq(0,1,by=0.1))
+
+cuts <- sort(unique(data$ps_cut))
+
+est_by_cut <- sapply(cuts, FUN=function(x) {
+  ds <- data[data$ps_cut==x,]
+  coefs <- lm(ds$Y ~ ds$A,data=ds,weights=ds$IPTW) %>% summary %$% coefficients[2,1:2]
+  return(c(coefs[1] + c(0,-1,1)*1.96*coefs[2],coefs[2]))
+}) %>% t %>% as.data.frame
+
+names(est_by_cut) <- c("est","ci_low","ci_high","se")
+
+ma <- rma.uni(yi = est_by_cut$est, sei = est_by_cut$se)
+
+
+
+
+```
+
+* $I^2=$ `r round(ma$I2,1)`
+* $\tau^2=$ `r round(ma$tau2,2)`
+
+```{r, echo=FALSE, cache=TRUE}
+forest.rma(ma, slab=paste0("Decile ",seq(0,0.9,by=0.1),"-",seq(0.1,1.0,by=0.1)))
+```
+
+
+
+
+## MSM, step by step
+
+1) Model your treatment as a function of your confounders
+2) Check balance of the covariates between treatment groups
+3) Check positivity
+4) Check mean and distribution of weights
+5) Go back to step 1 if you aren't satisfied with the results in steps 2, 3, and 4
+6) Estimate the marginal structural model
+
+## Confidence intervals
+
+* Two ways of estimating confidence intervals:
+    * Non-parametric bootstrap
+    * Robust variance estimator (conservative)
+* Can also estimate p-values (but don't!)
+
+
+
+
+## Advantages of PS for adjustment
+
+* Directly checks positivity
+* Dimension reduction
+* Outcome model non-parametric
+* Can play with treatment model to check balance
+* Looks like a trial
+
+
+## Disadvantages of PS for adjustment
+
+* Will be biased with non-positivity
+* Will be biased with misspecification of the treatment model
+
+## Other ways you can use the PS
+
+* Stratification
+     * Stratify the PS, estimate the effect within each stratum and pool
+* Targeted maximum likelihood estimation
+     * Doubly robust
+     * Uses the propensity score to create the "clever covariate"
+* Matching 
+     * Match people with similar PSes and conduct a matched analysis
+     
+## Additional points
+
+* Propensity score methods are not quasi-experimental. It only adjusts for the confounders that you put into the propensity score.
+* Think about whether it is easier to model the exposure or model the outcome
+
+## Weights for censoring 
+
+* Weights can be used in a very similar way to correct for losses to follow up
+* Estimate the probability of NOT being lost to follow-up given baseline covariates
+* Weight the observed observations using the inverse of these weights
+* This creates a pseudopopulation that resembles the population if no one was lost to follow-up 
+
+---
+
+\centering
+\Large{5. MSM with time-varying exposures }
+
+
+## MSM with time-varying exposures: why we need them
+
+* If you want to know the effect of $A_0$ and $A_1$ in the graph below, what do you adjust for? 
+* Pre-1986 there would have been no way to answer this
+
+\begin{figure}
+\begin{tikzpicture}
+\node[text centered] at (0,0) (a0) {$A_0$};
+\node[text centered] at (-1,2) (u0) {$C_0$};
+\node[text centered] at (3,0) (a1) {$A_1$};
+\node[text centered] at (2,2) (u1) {$C_1$};
+\node[text centered] at (6,0) (y) {$Y$};
+\draw[->, line width= 1] (a0) -- (a1);
+\draw[->, line width= 1] (a0) -- (u1);
+\draw[->, line width= 1] (a0) to [out=315,in=225, looseness=0.75] (y) ;
+\draw[->, line width= 1] (u0) -- (a1);
+\draw[->, line width= 1] (u0) -- (a0);
+\draw[->, line width= 1] (u0) -- (u1);
+\draw[->, line width= 1] (u1) -- (a1);
+\draw[->, line width= 1] (u1) -- (y);
+\draw[->, line width= 1] (a1) -- (y);
+
+\end{tikzpicture}
+\end{figure}
+
+
+
+
+## Weights for MSM with time-varying exposure
+
+* Unstabilized: $$ W^{\bar{A}} = \prod^{K}_{k=0}\frac{1}{f(A_{k}|A_{k-1},\bar{L}_k)} $$
+* Stabilized: $$ SW^{\bar{A}} = \prod^{K}_{k=0}\frac{f(A_{k}|A_{k-1})}{f(A_{k}|A_{k-1},\bar{L}_k)} $$
+
+---
+
+* PS for $A_0$: $P(A_0=1|C_0)$
+* PS for $A_1$: $P(A_1=1|A_0,C_0,C_1)$
+
+\begin{figure}
+\begin{tikzpicture}
+\node[text centered] at (0,0) (a0) {$A_0$};
+\node[text centered] at (-1,2) (u0) {$C_0$};
+\node[text centered] at (3,0) (a1) {$A_1$};
+\node[text centered] at (2,2) (u1) {$C_1$};
+\node[text centered] at (6,0) (y) {$Y$};
+\draw[->, line width= 1] (a0) -- (a1);
+\draw[->, line width= 1] (a0) -- (u1);
+\draw[->, line width= 1] (a0) to [out=315,in=225, looseness=0.75] (y) ;
+\draw[->, line width= 1] (u0) -- (a1);
+\draw[->, line width= 1] (u0) -- (a0);
+\draw[->, line width= 1] (u0) -- (u1);
+\draw[->, line width= 1] (u1) -- (a1);
+\draw[->, line width= 1] (u1) -- (y);
+\draw[->, line width= 1] (a1) -- (y);
+
+\end{tikzpicture}
+\end{figure}
+
+---
+
+* $IPTW_{A_0}$: $\frac{1}{P(A_0=a_0|C_0)}$
+* $IPTW_{A_1}$: $\frac{1}{P(A_1=a_1|A_0,C_0,C_1)}$
+* $IPTW_{A_0,A_1}$: $\frac{1}{P(A_0=a_0|C_0)}*\frac{1}{P(A_1=a_1|A_0,C_0,C_1)}$
+* Nice paper and software by Jackson 2016 (PMID:27479649) to assess balance for such weigths
+
+\begin{figure}
+\begin{tikzpicture}
+\node[text centered] at (0,0) (a0) {$A_0$};
+\node[text centered] at (-1,2) (u0) {$C_0$};
+\node[text centered] at (3,0) (a1) {$A_1$};
+\node[text centered] at (2,2) (u1) {$C_1$};
+\node[text centered] at (6,0) (y) {$Y$};
+\draw[->, line width= 1] (a0) -- (a1);
+\draw[->, line width= 1] (a0) -- (u1);
+\draw[->, line width= 1] (a0) to [out=315,in=225, looseness=0.75] (y) ;
+\draw[->, line width= 1] (u0) -- (a1);
+\draw[->, line width= 1] (u0) -- (a0);
+\draw[->, line width= 1] (u0) -- (u1);
+\draw[->, line width= 1] (u1) -- (a1);
+\draw[->, line width= 1] (u1) -- (y);
+\draw[->, line width= 1] (a1) -- (y);
+
+\end{tikzpicture}
+\end{figure}
+
+## Marginal structural models for time-varying exposures
+
+* You can estimate a MSM: $E_{IPTW_{A_0,A_1}}[Y^a] = \beta_0 + \beta_{A_0}*a_0 + \beta_{A_1}*a_1$
+* Creates a pseudopopulation with the following characteristic:
+
+\begin{figure}
+\begin{tikzpicture}
+\node[text centered] at (0,0) (a0) {$A_0$};
+\node[text centered] at (-1,2) (u0) {$C_0$};
+\node[text centered] at (3,0) (a1) {$A_1$};
+\node[text centered] at (2,2) (u1) {$C_1$};
+\node[text centered] at (6,0) (y) {$Y$};
+\draw[->, line width= 1] (a0) -- (a1);
+\draw[->, line width= 1] (a0) -- (u1);
+\draw[->, line width= 1] (a0) to [out=315,in=225, looseness=0.75] (y) ;
+
+
+\draw[->, line width= 1] (u0) -- (u1);
+
+\draw[->, line width= 1] (u1) -- (y);
+\draw[->, line width= 1] (a1) -- (y);
+
+\end{tikzpicture}
+\end{figure}
+
+---
+
+\centering
+\Large{6. Marginal versus conditional }
+
+## Marginal versus conditional estimates
+
+* These terms are a mess. Different people can understand TOTALLY different things
+* Marginal estimates are the average causal effect in the population if you expose and unexpose everyone
+    * IPTW
+    * GEE
+* Conditional effects are the average effect if you keep all covariates constant
+    * Outcome regression
+    * Many others
+* This means that the IPTW and outcome regression estimates can be different when the outcome is binary or when there is effect estimation
+
+
+##
+
+
+
+
+```{r simple_sim, include=TRUE, echo=T, eval=FALSE}
+n <- 10000
+c <- rbinom(n,1,0.5)
+a <- rbinom(n,1,0.1 + 0.5*c)
+y <- a + a*c + c + rnorm(n)
+
+```
+
+
+##
+
+- What parameters might we be interested in here?   
+    - $\psi_{A|C=0}=1$    
+    - $\psi_{A|C=1}=2$    
+    - $\psi_{marginal}=1.5$  
+
+\vspace{10mm}
+
+```{r simple_sim1, include=TRUE, echo=T, eval=FALSE}
+
+n <- 10000
+c <- rbinom(n,1,0.5)
+a <- rbinom(n,1,0.1 + 0.5*c)
+y <- a + a*c + c + rnorm(n)
+
+```
+
+
+  
+
+##
+
+- What estimate do you expect for 'a' here?
+
+```{r simple_sim2, include=TRUE, echo=T, eval=FALSE}
+
+n <- 10000
+c <- rbinom(n,1,0.5)
+a <- rbinom(n,1,0.1 + 0.5*c)
+y <- a + a*c + c + rnorm(n)
+
+lm(y ~ a + c)
+
+```
+
+
+##
+
+- What estimate do you expect for 'a' here?
+
+```{r simple_sim3, include=TRUE, echo=T, eval=TRUE}
+
+n <- 10000
+c <- rbinom(n,1,0.5)
+a <- rbinom(n,1,0.1 + 0.5*c)
+y <- a + a*c + c + rnorm(n)
+
+lm(y ~ a + c) %>% summary %$% coefficients %>% round(2)
+
+```
+
+##
+
+* When using IPTW or MSM, we get the right answer without having to specify the interaction between $A$ and $C$
+
+```{r simple_sim4, include=TRUE, echo=T, eval=TRUE}
+
+
+ps <- predict(glm(a ~ c, family=binomial),
+              type = "response")
+iptw <- (1/ps)*a + (1/(1-ps)*(1-a))
+
+lm(y ~ a, w=iptw) %>% summary %$% coefficients %>% round(2)
+
+```
+
+## 
+
+![](shrier.png)
+
+---
+
+\centering
+\Large{7. Treatment models vs outcome models}
+
+## Treatment models vs outcome models
+
+
+* Both treatment and outcome models can be causal
+* Treatment models have the advantage that you can play around with the model to get the right balance without looking at the outcome
+* Ideally, do both and the estimates agree
+* Some people say, "think about which you can model better, exposure or outcome." I'm not sure this is good advice.
+
+---
+
+\centering
+\Large{8. Example}
+
+
+
+
+
+## Richardson et al
+
+
+\begin{center}
+\includegraphics[width=4in]{richardson_abstract.png}
+\end{center}
+
+## Richardson et al
+
+* They use outcome regression, outcome regression adjusted for PS and IPTW
+* Correctly defined the IPT weights
+
+\begin{center}
+\includegraphics[width=3in]{ps_def.png}
+\end{center}
+
+## Richardson et al
+
+* \textcolor{yellow}{Checked balance}, \textcolor{green}{Checked positivity}, \textcolor{blue}{trimmed extreme PS values}, \textcolor{red}{checked effect modification by PS}
+
+\begin{center}
+\includegraphics[width=2.8in]{colours.png}
+\end{center}
+
+
+## Richardson et al
+
+* Covariate balance
+
+\begin{center}
+\includegraphics[width=4in]{table1.png}
+\end{center}
+
+
+## Richardson et al
+
+* Density of PS by exposure
+
+\begin{center}
+\includegraphics[width=3in]{ps_graph.png}
+\end{center}
+
+
+## Richardson et al
+
+* Checked weights
+
+\begin{center}
+\includegraphics[width=3in]{check_weights.png}
+\end{center}
+
+
+## Richardson et al
+
+* Results
+
+\begin{center}
+\includegraphics[width=3in]{results.png}
+\end{center}
+
+## Richardson et al
+
+* This is a nice IPTW paper
+    * Correct definition of IPT weights
+    * Check balance
+    * Check distribution of PS
+    * Check weights
+    * Check positivity
+    * Check how trimming affects results
+    * Check heterogeneity by PS
+
+
+## Exercise
+
+* Now we will do a short exercise where you will estimate a PS, calculate the IPT weights and estimate a causal effect.
+* Feel free to email me: j.labrecque@erasmusmc.nl
+
+\begin{center}
+\includegraphics[width=3in]{IPTW_time.png}
+\end{center}
+
+## References
+
+* Causal Inference, Hernan and Robins
+* Modern Epidemiology, Rothman, Greenland and Lash
+* Moving towards best practice when using inverse probability of treatment weighting (IPTW) using the propensity score to estimate causal treatment effects in observational studies. Austin and Stuart, 2015. Statistics in Medicine 34(28):3661-3679.
+* Propensity Score Methods for Confounding Control in Non-Experimental Research. Brookhart et al, 2013. Circ Cardiovasc Qual Outcomes 6(5): 604-611.
+* Moodie and Stephens, 2017. Treatment prediction, balance and propensity score adjustment. _Epidemiology_ 28(5):e51-53.
+* Shrier, Pang and Platt, 2017. Graphic report of the results from propensity score method analyses. _J Clin Epi_ 88:154-159.
